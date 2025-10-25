@@ -3,10 +3,16 @@ name: CI/CD para ML con MLflow
 on:
   push:
     branches: [main]
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub Actions
 
 jobs:
   ml_pipeline:
     runs-on: ubuntu-latest
+
+    env:
+      HF: ${{ secrets.HF }}
+      USER_NAME: ${{ github.actor }}
+      USER_EMAIL: "${{ github.actor }}@users.noreply.github.com"
 
     steps:
       - name: 📥 Clonar repositorio
@@ -23,15 +29,44 @@ jobs:
           pip install -r requirements.txt
           pip install mlflow joblib scikit-learn pandas
 
+      - name: 🧹 Formatear código
+        run: |
+          black --check .
+
       - name: 🧪 Entrenar modelo
         run: make train
 
-      # - name: ✅ Validar desempeño del modelo
-      #   run: make validate
+      - name: ✅ Validar desempeño del modelo
+        run: make validate-1
 
-      # - name: 📤 Subir modelo como artefacto (si pasa validación)
-      #   if: success()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: modelo-validado
-      #     path: model.pkl
+      - name: 📤 Subir modelo como artefacto (si pasa validación)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+           name: modelo-validado
+           path: |
+            ./model.pkl
+            ./Results/
+
+      - name: 📝 Generar reporte
+        run: |
+          echo "## Métricas del modelo" > report.md
+          if [ -f Results/metrics.txt ]; then cat Results/metrics.txt >> report.md; fi
+          echo '\n## Matriz de confusión' >> report.md
+          if [ -f Results/model_results.png ]; then echo '![Matriz de confusión](./Results/model_results.png)' >> report.md; fi
+
+      - name: 🔄 Commit de resultados al repositorio
+        run: |
+          git config --global user.name "${USER_NAME}"
+          git config --global user.email "${USER_EMAIL}"
+          git add Results/ report.md || true
+          git commit -m "Actualización automática de resultados del modelo" || echo "No hay cambios nuevos"
+          git push origin main
+
+      - name: 🤗 Login en Hugging Face
+        run: |
+          huggingface-cli login --token "${HF}" --add-to-git-credential
+
+      - name: 🚀 Subir modelo y métricas a Hugging Face
+        run: |
+          huggingface-cli upload johncampoyepes/mlflow-deploy ./Results --repo-type=space --commit-message "Actualización automática del modelo"
