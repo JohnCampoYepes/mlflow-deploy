@@ -2,6 +2,6 @@
 all: train validate
 
 train:
-	py src/train.py  
+	python src/train.py  
 validate:
-	py src/validate.py 
+	python src/validate.py 
